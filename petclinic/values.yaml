@@ -1,0 +1,36 @@
+apiVersion: v2
+name: akerman0509/spring-petclinic
+description: A Helm chart for Spring petclinic Microservices
+version: 0.1.0
+appVersion: "0.0.1-SNAPSHOT"
+replicaCount: 1
+
+services:
+  - name: discovery-server
+    image: akerman0509/spring-petclinic-discovery-server
+    port: 8761
+  - name: config-server
+    image: akerman0509/spring-petclinic-config-server
+    port: 8888
+  - name: admin-server
+    image: akerman0509/spring-petclinic-admin-server
+    port: 9100
+  - name: api-gateway
+    image: akerman0509/spring-petclinic-api-gateway
+    port: 8080
+  - name: customers-service
+    image: akerman0509/spring-petclinic-customers-service
+    port: 8081
+  - name: genai-service
+    image: akerman0509/spring-petclinic-genai-service
+    port: 8082
+  - name: vets-service
+    image: akerman0509/spring-petclinic-vets-service
+    port: 8083
+  - name: visits-service
+    image: akerman0509/spring-petclinic-visits-service
+    port: 8084
+
+service:
+  type: NodePort
+  nodePort: 30080  # Cổng NodePort cho API-Gateway (có thể thay đổi nếu cần)

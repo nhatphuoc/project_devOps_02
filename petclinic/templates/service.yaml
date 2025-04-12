@@ -1,0 +1,19 @@
+{{- range .Values.services }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .name }}
+  labels:
+    app: {{ .name }}
+spec:
+  selector:
+    app: {{ .name }}
+  type: {{ if eq .name "api-gateway" }}{{ $.Values.service.type }}{{ else }}ClusterIP{{ end }}
+  ports:
+    - port: {{ .port }}
+      targetPort: {{ .port }}
+      {{- if eq .name "api-gateway" }}
+      nodePort: {{ $.Values.service.nodePort }}
+      {{- end }}
+{{- end }}
