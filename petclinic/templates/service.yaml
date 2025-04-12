@@ -1,19 +1,15 @@
-{{- range .Values.services }}
----
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ .name }}
+  name: {{ include "petclinic.fullname" . }}
   labels:
-    app: {{ .name }}
+    {{- include "petclinic.labels" . | nindent 4 }}
 spec:
-  selector:
-    app: {{ .name }}
-  type: {{ if eq .name "api-gateway" }}{{ $.Values.service.type }}{{ else }}ClusterIP{{ end }}
+  type: {{ .Values.service.type }}
   ports:
-    - port: {{ .port }}
-      targetPort: {{ .port }}
-      {{- if eq .name "api-gateway" }}
-      nodePort: {{ $.Values.service.nodePort }}
-      {{- end }}
-{{- end }}
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "petclinic.selectorLabels" . | nindent 4 }}
