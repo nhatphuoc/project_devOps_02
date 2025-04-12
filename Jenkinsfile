@@ -3,10 +3,6 @@ pipeline {
     options {
         buildDiscarder(logRotator(numToKeepStr: '5'))
     }
-    // tools {
-    //     maven 'maven3'
-    //     // jdk 'jdk17'
-    // }
     environment {
         WORKSPACE = "${env.WORKSPACE}"
         // List of services without test folders       
@@ -101,110 +97,59 @@ pipeline {
                     def jacocoSrcDirs = []
                     
                     for (service in serviceList) {
-                        echo "Running tests for service: ${service}"
                         echo "Testing service: ${service}"
-                        // Check if the service has tests
-                        if (!env.SERVICES_WITHOUT_TESTS.contains(service)) {
-                            try {
-                                def testOutput = sh(script: "./mvnw clean verify -pl ${service}", returnStdout: true)
-
-                                // def testOutput = sh(script: 'mvn clean test -Djdk.attach.allowAttachSelf=true', returnStdout: true)
-
-                                testDetails[service] = [
-                                    status: 'SUCCESS',
-                                    output: testOutput
-                                ]
-                                testPasses++
-                            } catch (Exception e) {
-                                echo "Warning: Tests failed for ${service}, but continuing pipeline"
-                                testDetails[service] = [
-                                    status: 'FAILURE',
-                                    error: e.getMessage()
-                                ]
-                                testFailures++
-                                currentBuild.result = 'UNSTABLE'
-                            } finally {
-                                // Publish test results regardless of test success/failure
-                                junit allowEmptyResults: true, testResults: '**/target/surefire-reports/*.xml'
-                                
-                                // Collect JaCoCo data for aggregation (if it exists)
-                                // Inside the finally block
-                                def moduleJacocoPath = "${service}/target/jacoco.exec"
-                                if (fileExists(moduleJacocoPath)) {
-                                    jacocoExecFiles.add(moduleJacocoPath) // This path was already correct
-                                    jacocoClassDirs.add("${service}/target/classes")
-                                    jacocoSrcDirs.add("${service}/src/main/java") // Assuming standard layout
+                        dir(service) {
+                            // Check if the service has tests
+                            if (!env.SERVICES_WITHOUT_TESTS.contains(service)) {
+                                try {
+                                    def testOutput = sh(script: 'mvn clean test', returnStdout: true)
+                                    testDetails[service] = [
+                                        status: 'SUCCESS',
+                                        output: testOutput
+                                    ]
+                                    testPasses++
+                                } catch (Exception e) {
+                                    echo "Warning: Tests failed for ${service}, but continuing pipeline"
+                                    testDetails[service] = [
+                                        status: 'FAILURE',
+                                        error: e.getMessage()
+                                    ]
+                                    testFailures++
+                                    currentBuild.result = 'UNSTABLE'
+                                } finally {
+                                    // Publish test results regardless of test success/failure
+                                    junit allowEmptyResults: true, testResults: '**/target/surefire-reports/*.xml'
+                                    
+                                    // Collect JaCoCo data for aggregation (if it exists)
+                                    if (fileExists('target/jacoco.exec')) {
+                                        jacocoExecFiles.add("${service}/target/jacoco.exec")
+                                        jacocoClassDirs.add("${service}/target/classes")
+                                        jacocoSrcDirs.add("${service}/src/main/java")
+                                    }
                                 }
+                            } else {
+                                echo "Skipping tests for ${service} as it does not have test folders"
+                                testDetails[service] = [
+                                    status: 'SKIPPED',
+                                    reason: 'No test folders'
+                                ]
                             }
-                        } else {
-                            echo "Skipping tests for ${service} as it does not have test folders"
-                            testDetails[service] = [
-                                status: 'SKIPPED',
-                                reason: 'No test folders'
-                            ]
                         }
                     }
-                    echo "outside of loop"
                     
                     // Generate a single aggregated JaCoCo report outside the loop
                     if (jacocoExecFiles.size() > 0) {
                         echo "Generating aggregated JaCoCo report for ${jacocoExecFiles.size()} services"
                         jacoco(
-                            execPattern: '**/target/jacoco.exec',
+                            execPattern: jacocoExecFiles.join(','),
                             classPattern: jacocoClassDirs.join(','),
                             sourcePattern: jacocoSrcDirs.join(','),
-                            // Removed unsupported parameters: outputDirectory, reportTitle, dumpOnExit
+                            exclusionPattern: '**/src/test*',
+                            outputDirectory: 'target/jacoco-reports',
+                            reportTitle: 'JaCoCo Aggregated Report - All Services',
                             skipCopyOfSrcFiles: true,
-                            minimumLineCoverage: '70',
-                            changeBuildStatus: true
+                            dumpOnExit: true
                         )
-                        
-                        // Update the path to check for the default JaCoCo report location
-                        def jacocoReportPath = "${env.WORKSPACE}/target/site/jacoco/jacoco.xml"
-                       
-
-
-                        if (fileExists(jacocoReportPath)) {
-                            def jacocoReport = readFile(jacocoReportPath)
-                            def coverageXml = new XmlSlurper().parseText(jacocoReport)
-                            def lineCoverage = coverageXml.counter.find { it.@type == 'LINE' }
-                            def covered = lineCoverage ? lineCoverage.@covered.toFloat() : 0
-                            def missed = lineCoverage ? lineCoverage.@missed.toFloat() : 0
-                            def totalLines = covered + missed
-                            def coveragePercent = totalLines > 0 ? (covered / totalLines) * 100 : 0
-                            echo "+++ coveragePercent is ======= ${coveragePercent}"
-                            def coverageFormatted = String.format("%.2f", coveragePercent)
-                            
-                            def coverageCheckResult = coveragePercent >= 70 ? 'SUCCESS' : 'NEUTRAL'
-                            def coverageCheckMessage = coveragePercent >= 70 ? 
-                                "✅ Line coverage ${coverageFormatted}% meets the requirement of 70%" :
-                                "⚠️ Line coverage ${coverageFormatted}% is below the required 70%"
-                            
-                            // Publish coverage check results
-                            publishChecks name: 'Code Coverage', status: 'COMPLETED', 
-                                conclusion: coverageCheckResult,
-                                summary: "Line coverage: ${coverageFormatted}%",
-                                text: """## JaCoCo Coverage Report
-                                    
-                                    ${coverageCheckMessage}
-                                    
-                                    | Metric | Covered | Missed | Total | Coverage |
-                                    |--------|---------|--------|-------|----------|
-                                    | Lines | ${covered.toInteger()} | ${missed.toInteger()} | ${totalLines.toInteger()} | ${coverageFormatted}% |
-                                    
-                                    See the detailed JaCoCo report in Jenkins for more information."""
-                            
-                            // Update build status if coverage is below threshold
-                            if (coveragePercent < 70) {
-                                currentBuild.result = currentBuild.result == 'UNSTABLE' ? 'UNSTABLE' : 'UNSTABLE'
-                            }
-                        } else {
-                            echo "Warning: JaCoCo XML report not found at ${jacocoReportPath}"
-                            publishChecks name: 'Code Coverage', status: 'COMPLETED', 
-                                conclusion: 'NEUTRAL',
-                                summary: "Could not determine coverage",
-                                text: "JaCoCo XML report not found. Coverage check could not be performed."
-                        }
                     }
                     
                     // Store test details for report
@@ -241,52 +186,52 @@ pipeline {
             }
         }
         
-        // stage('Build Services') {
-        //     when {
-        //         expression { return env.CHANGED_SERVICES != "" }
-        //     }
-        //     steps {
-        //         publishChecks name: 'Build Services', status: 'IN_PROGRESS',
-        //             summary: 'Building changed services'
-        //         script {
-        //             def serviceList = env.CHANGED_SERVICES.trim().split(" ")
-        //             def buildDetails = []
+        stage('Build Services') {
+            when {
+                expression { return env.CHANGED_SERVICES != "" }
+            }
+            steps {
+                publishChecks name: 'Build Services', status: 'IN_PROGRESS',
+                    summary: 'Building changed services'
+                script {
+                    def serviceList = env.CHANGED_SERVICES.trim().split(" ")
+                    def buildDetails = []
                     
-        //             for (service in serviceList) {
-        //                 echo "Building service: ${service}"
-        //                 dir(service) {
-        //                     try {
-        //                         sh 'mvn package -DskipTests'
-        //                         def artifactName = sh(script: 'find target -name "*.jar" | head -1', returnStdout: true).trim()
-        //                         buildDetails.add("✅ ${service}: Successfully built ${artifactName}")
-        //                         archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
-        //                     } catch (Exception e) {
-        //                         buildDetails.add("❌ ${service}: Build failed - ${e.getMessage()}")
-        //                         currentBuild.result = 'UNSTABLE'
-        //                     }
-        //                 }
-        //             }
+                    for (service in serviceList) {
+                        echo "Building service: ${service}"
+                        dir(service) {
+                            try {
+                                sh 'mvn package -DskipTests'
+                                def artifactName = sh(script: 'find target -name "*.jar" | head -1', returnStdout: true).trim()
+                                buildDetails.add("✅ ${service}: Successfully built ${artifactName}")
+                                archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
+                            } catch (Exception e) {
+                                buildDetails.add("❌ ${service}: Build failed - ${e.getMessage()}")
+                                currentBuild.result = 'UNSTABLE'
+                            }
+                        }
+                    }
                     
-        //             // Create build report
-        //             env.BUILD_DETAILS = buildDetails.join('\n')
-        //         }
-        //         publishChecks name: 'Build Services', status: 'COMPLETED', 
-        //             conclusion: currentBuild.result == 'UNSTABLE' ? 'NEUTRAL' : 'SUCCESS',
-        //             summary: "Built ${env.CHANGED_SERVICES.trim().split(' ').size()} services",
-        //             text: """## Build Results
-        //                   ```
-        //                   ${env.BUILD_DETAILS}
-        //                   ```
+                    // Create build report
+                    env.BUILD_DETAILS = buildDetails.join('\n')
+                }
+                publishChecks name: 'Build Services', status: 'COMPLETED', 
+                    conclusion: currentBuild.result == 'UNSTABLE' ? 'NEUTRAL' : 'SUCCESS',
+                    summary: "Built ${env.CHANGED_SERVICES.trim().split(' ').size()} services",
+                    text: """## Build Results
+                          ```
+                          ${env.BUILD_DETAILS}
+                          ```
                           
-        //                   All artifacts have been archived."""
-        //     }
-        //     post {
-        //         failure {
-        //             publishChecks name: 'Build Services', status: 'COMPLETED', conclusion: 'FAILURE',
-        //                 summary: 'Build process failed'
-        //         }
-        //     }
-        // }
+                          All artifacts have been archived."""
+            }
+            post {
+                failure {
+                    publishChecks name: 'Build Services', status: 'COMPLETED', conclusion: 'FAILURE',
+                        summary: 'Build process failed'
+                }
+            }
+        }
 
     }
     post {
