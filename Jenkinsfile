@@ -13,7 +13,7 @@ pipeline {
   }
 
   environment {
-    DOCKER_HUB_CREDS = credentials('docker-hub-credentials')
+    DOCKER_HUB_CREDS = credentials('devOps_project02')
     NAMESPACE = 'petclinic'
     CHART_NAME = 'petclinic'
     DOCKER_HUB_USERNAME = 'nhatphuoc'
@@ -41,7 +41,7 @@ pipeline {
             'genai-service': determineImageTag('GENAI_SERVICE_BRANCH')
           ]
           
-          // Save the map to use in later stages
+          // Lưu map để sử dụng trong các stage sau
           env.SERVICE_IMAGE_TAGS = groovy.json.JsonOutput.toJson(serviceImageTags)
           echo "Service image tags: ${env.SERVICE_IMAGE_TAGS}"
         }
@@ -86,19 +86,22 @@ pipeline {
       }
     }
 
-    stage('Update Helm Values') {
+    stage('Create Custom Values') {
       steps {
         script {
           def serviceImageTags = new groovy.json.JsonSlurperClassic().parseText(env.SERVICE_IMAGE_TAGS)
           
-          // Generate a values.yaml file from our template with the correct image tags
-          def valuesYaml = "services:\n"
+          // Đọc values.yaml gốc để lấy cấu trúc
+          def originalValues = readFile 'petclinic/values.yaml'
+          
+          // Thay thế các giá trị imageTag trong values.yaml
+          def updatedValues = originalValues
           serviceImageTags.each { service, tag ->
-            valuesYaml += "  ${service}:\n    imageTag: ${tag}\n"
+            updatedValues = updatedValues.replaceAll("(?m)^(\\s+)${service}:\\s*\$\\s+imageTag:\\s*.*", "\$1${service}:\n\$1  imageTag: ${tag}")
           }
           
-          // Write the values file
-          writeFile file: 'custom-values.yaml', text: valuesYaml
+          // Ghi ra file custom-values.yaml
+          writeFile file: 'custom-values.yaml', text: updatedValues
         }
       }
     }
@@ -143,10 +146,7 @@ def determineImageTag(String branchParamName) {
   if (branchName == 'main' || branchName == 'master') {
     return 'latest'
   } else {
-    // For development branches, we need to get the commit ID
-    // Since this is a different repo, we might need to clone and check
-    // For now, I'm assuming the commit ID is part of the branch name or we use the branch name itself
-    // In a real implementation, you might want to query your Git system for the latest commit ID
+    // Đối với branch phát triển, chúng ta dùng tên branch làm tag
     return branchName
   }
 }

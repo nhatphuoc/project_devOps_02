@@ -1,15 +1,39 @@
+{{- define "petclinic.service" -}}
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "petclinic.fullname" . }}
+  name: {{ .serviceName }}
+  namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "petclinic.labels" . | nindent 4 }}
+    app: {{ .serviceName }}
 spec:
-  type: {{ .Values.service.type }}
-  ports:
-    - port: {{ .Values.service.port }}
-      targetPort: http
-      protocol: TCP
-      name: http
   selector:
-    {{- include "petclinic.selectorLabels" . | nindent 4 }}
+    app: {{ .serviceName }}
+  ports:
+  - port: {{ .serviceConfig.port }}
+    targetPort: {{ .serviceConfig.port }}
+    name: http
+{{- end -}}
+
+# Generate services for all services
+{{- range $serviceName, $serviceConfig := .Values.services }}
+---
+{{ template "petclinic.service" (dict "serviceName" $serviceName "serviceConfig" $serviceConfig "Release" $.Release) }}
+{{- end }}
+
+# Special case for tracing-server
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tracing-server
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: tracing-server
+spec:
+  selector:
+    app: tracing-server
+  ports:
+  - port: {{ .Values.tracing-server.port }}
+    targetPort: {{ .Values.tracing-server.port }}
+    name: http
