@@ -1,36 +1,85 @@
-apiVersion: v2
-name: akerman0509/spring-petclinic
-description: A Helm chart for Spring petclinic Microservices
-version: 0.1.0
-appVersion: "0.0.1-SNAPSHOT"
+# Default values for petclinic helm chart
 replicaCount: 1
 
-services:
-  - name: discovery-server
-    image: akerman0509/spring-petclinic-discovery-server
-    port: 8761
-  - name: config-server
-    image: akerman0509/spring-petclinic-config-server
-    port: 8888
-  - name: admin-server
-    image: akerman0509/spring-petclinic-admin-server
-    port: 9100
-  - name: api-gateway
-    image: akerman0509/spring-petclinic-api-gateway
-    port: 8080
-  - name: customers-service
-    image: akerman0509/spring-petclinic-customers-service
-    port: 8081
-  - name: genai-service
-    image: akerman0509/spring-petclinic-genai-service
-    port: 8082
-  - name: vets-service
-    image: akerman0509/spring-petclinic-vets-service
-    port: 8083
-  - name: visits-service
-    image: akerman0509/spring-petclinic-visits-service
-    port: 8084
+# Default environment variables
+env:
+  SPRING_PROFILES_ACTIVE: kubernetes
 
-service:
-  type: NodePort
-  nodePort: 30080  # Cổng NodePort cho API-Gateway (có thể thay đổi nếu cần)
+# Service image tags - these will be overridden by Jenkins
+services:
+  config-server:
+    imageTag: latest
+    port: 8888
+    resources:
+      memory: 512Mi
+    healthcheck:
+      path: /
+      port: 8888
+  
+  discovery-server:
+    imageTag: latest
+    port: 8761
+    resources:
+      memory: 512Mi
+    healthcheck:
+      path: /
+      port: 8761
+    
+  admin-server:
+    imageTag: latest
+    port: 9090
+    resources:
+      memory: 512Mi
+  
+  api-gateway:
+    imageTag: latest
+    port: 8080
+    resources:
+      memory: 512Mi
+    
+  customers-service:
+    imageTag: latest
+    port: 8081
+    resources:
+      memory: 512Mi
+  
+  visits-service:
+    imageTag: latest
+    port: 8082
+    resources:
+      memory: 512Mi
+  
+  vets-service:
+    imageTag: latest
+    port: 8083
+    resources:
+      memory: 512Mi
+  
+  genai-service:
+    imageTag: latest
+    port: 8084
+    resources:
+      memory: 512Mi
+    env:
+      - name: OPENAI_API_KEY
+        value: ""
+      - name: AZURE_OPENAI_KEY
+        value: ""
+      - name: AZURE_OPENAI_ENDPOINT
+        value: ""
+
+# Tracing server (Zipkin)
+tracing-server:
+  imageTag: latest
+  repository: openzipkin/zipkin
+  port: 9411
+  resources:
+    memory: 512Mi
+  env:
+    - name: JAVA_OPTS
+      value: "-XX:UseSVE=0"
+
+# Global image settings
+image:
+  registry: ""  # Use local Minikube images
+  pullPolicy: IfNotPresent

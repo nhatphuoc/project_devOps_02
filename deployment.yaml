@@ -1,27 +1,95 @@
-{{- range .Values.services }}
+{{- define "petclinic.deployment" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .serviceName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .serviceName }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .serviceName }}
+  template:
+    metadata:
+      labels:
+        app: {{ .serviceName }}
+    spec:
+      containers:
+      - name: {{ .serviceName }}
+        image: {{ if .Values.image.registry }}{{ .Values.image.registry }}/{{ end }}spring-petclinic-{{ .serviceName }}:{{ .serviceConfig.imageTag }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - containerPort: {{ .serviceConfig.port }}
+        resources:
+          limits:
+            memory: {{ .serviceConfig.resources.memory | default "512Mi" }}
+        {{- if .serviceConfig.env }}
+        env:
+        {{- range .serviceConfig.env }}
+        - name: {{ .name }}
+          value: {{ .value }}
+        {{- end }}
+        {{- end }}
+        {{- if .Values.env }}
+        {{- range $key, $val := .Values.env }}
+        - name: {{ $key }}
+          value: {{ $val | quote }}
+        {{- end }}
+        {{- end }}
+        {{- if .serviceConfig.healthcheck }}
+        livenessProbe:
+          httpGet:
+            path: {{ .serviceConfig.healthcheck.path }}
+            port: {{ .serviceConfig.healthcheck.port }}
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: {{ .serviceConfig.healthcheck.path }}
+            port: {{ .serviceConfig.healthcheck.port }}
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        {{- end }}
+{{- end -}}
+
+# Generate deployments for all services
+{{- range $serviceName, $serviceConfig := .Values.services }}
+---
+{{ template "petclinic.deployment" (dict "serviceName" $serviceName "serviceConfig" $serviceConfig "Values" $.Values "Release" $.Release) }}
+{{- end }}
+
+# Special case for tracing-server
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .name }}
+  name: tracing-server
+  namespace: {{ .Release.Namespace }}
   labels:
-    app: {{ .name }}
+    app: tracing-server
 spec:
-  replicas: {{ $.Values.replicaCount }}
+  replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      app: {{ .name }}
+      app: tracing-server
   template:
     metadata:
       labels:
-        app: {{ .name }}
+        app: tracing-server
     spec:
       containers:
+      - name: tracing-server
+        image: {{ .Values.tracing-server.repository }}:{{ .Values.tracing-server.imageTag }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.tracing-server.port }}
+        resources:
+          limits:
+            memory: {{ .Values.tracing-server.resources.memory }}
+        env:
+        {{- range .Values.tracing-server.env }}
         - name: {{ .name }}
-          image: {{ .image }}
-          ports:
-            - containerPort: {{ .port }}
-          env:
-            - name: SPRING_PROFILES_ACTIVE
-              value: "docker"
-{{- end }}
+          value: {{ .value }}
+        {{- end }}

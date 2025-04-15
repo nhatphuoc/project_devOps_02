@@ -1,19 +1,39 @@
-{{- range .Values.services }}
+{{- define "petclinic.service" -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .serviceName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .serviceName }}
+spec:
+  selector:
+    app: {{ .serviceName }}
+  ports:
+  - port: {{ .serviceConfig.port }}
+    targetPort: {{ .serviceConfig.port }}
+    name: http
+{{- end -}}
+
+# Generate services for all services
+{{- range $serviceName, $serviceConfig := .Values.services }}
+---
+{{ template "petclinic.service" (dict "serviceName" $serviceName "serviceConfig" $serviceConfig "Release" $.Release) }}
+{{- end }}
+
+# Special case for tracing-server
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ .name }}
+  name: tracing-server
+  namespace: {{ .Release.Namespace }}
   labels:
-    app: {{ .name }}
+    app: tracing-server
 spec:
   selector:
-    app: {{ .name }}
-  type: {{ if eq .name "api-gateway" }}{{ $.Values.service.type }}{{ else }}ClusterIP{{ end }}
+    app: tracing-server
   ports:
-    - port: {{ .port }}
-      targetPort: {{ .port }}
-      {{- if eq .name "api-gateway" }}
-      nodePort: {{ $.Values.service.nodePort }}
-      {{- end }}
-{{- end }}
+  - port: {{ .Values.tracing-server.port }}
+    targetPort: {{ .Values.tracing-server.port }}
+    name: http
