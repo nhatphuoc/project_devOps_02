@@ -25,11 +25,10 @@ pipeline {
         checkout scm
       }
     }
-    
+
     stage('Determine Image Tags') {
       steps {
         script {
-          // Map branch parameters to their respective services and image tags
           def serviceImageTags = [
             'config-server': determineImageTag('CONFIG_SERVER_BRANCH'),
             'discovery-server': determineImageTag('DISCOVERY_SERVER_BRANCH'),
@@ -40,8 +39,6 @@ pipeline {
             'vets-service': determineImageTag('VETS_SERVICE_BRANCH'),
             'genai-service': determineImageTag('GENAI_SERVICE_BRANCH')
           ]
-          
-          // Lưu map để sử dụng trong các stage sau
           env.SERVICE_IMAGE_TAGS = groovy.json.JsonOutput.toJson(serviceImageTags)
           echo "Service image tags: ${env.SERVICE_IMAGE_TAGS}"
         }
@@ -50,21 +47,9 @@ pipeline {
 
     stage('Login to Docker Hub') {
       steps {
-        sh "echo ${DOCKER_HUB_CREDS_PSW} | docker login -u ${DOCKER_HUB_CREDS_USR} --password-stdin"
-      }
-    }
-
-    stage('Pull Images') {
-      steps {
-        script {
-          def serviceImageTags = new groovy.json.JsonSlurperClassic().parseText(env.SERVICE_IMAGE_TAGS)
-          
-          serviceImageTags.each { service, tag ->
-            sh "docker pull ${DOCKER_HUB_USERNAME}/spring-petclinic-${service}:${tag}"
-            // Tag for Minikube usage
-            sh "docker tag ${DOCKER_HUB_USERNAME}/spring-petclinic-${service}:${tag} spring-petclinic-${service}:${tag}"
-          }
-        }
+        sh """
+          echo "$DOCKER_HUB_CREDS_PSW" | docker login -u "$DOCKER_HUB_CREDS_USR" --password-stdin
+        """
       }
     }
 
@@ -74,13 +59,19 @@ pipeline {
       }
     }
 
-    stage('Load Images to Minikube') {
+    stage('Pull & Load Images') {
       steps {
         script {
           def serviceImageTags = new groovy.json.JsonSlurperClassic().parseText(env.SERVICE_IMAGE_TAGS)
-          
           serviceImageTags.each { service, tag ->
-            sh "minikube image load spring-petclinic-${service}:${tag}"
+            def fullImage = "${DOCKER_HUB_USERNAME}/spring-petclinic-${service}:${tag}"
+            def localImage = "spring-petclinic-${service}:${tag}"
+
+            sh """
+              docker pull ${fullImage}
+              docker tag ${fullImage} ${localImage}
+              minikube image load ${localImage}
+            """
           }
         }
       }
@@ -90,17 +81,12 @@ pipeline {
       steps {
         script {
           def serviceImageTags = new groovy.json.JsonSlurperClassic().parseText(env.SERVICE_IMAGE_TAGS)
-          
-          // Đọc values.yaml gốc để lấy cấu trúc
           def originalValues = readFile 'petclinic/values.yaml'
-          
-          // Thay thế các giá trị imageTag trong values.yaml
           def updatedValues = originalValues
           serviceImageTags.each { service, tag ->
-            updatedValues = updatedValues.replaceAll("(?m)^(\\s+)${service}:\\s*\$\\s+imageTag:\\s*.*", "\$1${service}:\n\$1  imageTag: ${tag}")
+            updatedValues = updatedValues.replaceAll("(?m)^(\\s*)${service}:\\s*$\\n\\1  imageTag:.*", "\$1${service}:
+\$1  imageTag: ${tag}")
           }
-          
-          // Ghi ra file custom-values.yaml
           writeFile file: 'custom-values.yaml', text: updatedValues
         }
       }
@@ -109,8 +95,10 @@ pipeline {
     stage('Deploy with Helm') {
       steps {
         script {
-          sh 'kubectl create namespace ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -'
-          sh 'helm upgrade --install ${CHART_NAME} ./petclinic -f custom-values.yaml --namespace ${NAMESPACE}'
+          sh '''
+            kubectl create namespace ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
+            helm upgrade --install ${CHART_NAME} ./petclinic -f custom-values.yaml --namespace ${NAMESPACE}
+          '''
         }
       }
     }
@@ -118,8 +106,10 @@ pipeline {
     stage('Verify Deployment') {
       steps {
         script {
-          sh 'kubectl get pods -n ${NAMESPACE}'
-          sh 'kubectl get svc -n ${NAMESPACE}'
+          sh '''
+            kubectl get pods -n ${NAMESPACE}
+            kubectl get svc -n ${NAMESPACE}
+          '''
         }
       }
     }
@@ -139,15 +129,8 @@ pipeline {
   }
 }
 
-// Helper function to determine image tag based on branch name
+// Helper function
 def determineImageTag(String branchParamName) {
   def branchName = params[branchParamName]
-  
-  if (branchName == 'main' || branchName == 'master') {
-    return 'latest'
-  } else {
-    // Đối với branch phát triển, chúng ta dùng tên branch làm tag
-    return branchName
-  }
+  return (branchName == 'main' || branchName == 'master') ? 'latest' : branchName
 }
-
