@@ -78,19 +78,21 @@ pipeline {
     }
 
     stage('Create Custom Values') {
-      steps {
-        script {
-          def serviceImageTags = new groovy.json.JsonSlurperClassic().parseText(env.SERVICE_IMAGE_TAGS)
-          def originalValues = readFile 'petclinic/values.yaml'
-          def updatedValues = originalValues
-          serviceImageTags.each { service, tag ->
-            updatedValues = updatedValues.replaceAll("(?m)^(\\s*)${service}:\\s*$\\n\\1  imageTag:.*", "\$1${service}:
-\$1  imageTag: ${tag}")
-          }
-          writeFile file: 'custom-values.yaml', text: updatedValues
-        }
+  steps {
+    script {
+      def serviceImageTags = new groovy.json.JsonSlurperClassic().parseText(env.SERVICE_IMAGE_TAGS)
+      def originalValues = readFile 'petclinic/values.yaml'
+
+      def updatedValues = originalValues
+      serviceImageTags.each { service, tag ->
+        updatedValues = updatedValues.replaceAll(/(?m)^(\s*)${service}:\s*$\n\1  imageTag: .*/, "\$1${service}:\n\$1  imageTag: ${tag}")
       }
+
+      writeFile file: 'custom-values.yaml', text: updatedValues
     }
+  }
+}
+
 
     stage('Deploy with Helm') {
       steps {
